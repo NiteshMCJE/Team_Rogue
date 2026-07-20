@@ -1,48 +1,10 @@
 // ===== api/data.js =====
-import { Octokit } from 'octokit';
+// SIMPLE VERSION - Stores data in memory (resets on restart)
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const REPO_OWNER = process.env.REPO_OWNER || 'your-username';
-const REPO_NAME = process.env.REPO_NAME || 'your-repo-name';
-const FILE_PATH = 'data/data.json';
-const BRANCH = 'main';
-
-const octokit = new Octokit({ auth: GITHUB_TOKEN });
-
-async function getDataFile() {
-  try {
-    const response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
-      owner: REPO_OWNER,
-      repo: REPO_NAME,
-      path: FILE_PATH,
-      ref: BRANCH,
-    });
-    return {
-      content: Buffer.from(response.data.content, 'base64').toString('utf8'),
-      sha: response.data.sha
-    };
-  } catch (error) {
-    if (error.status === 404) {
-      return {
-        content: JSON.stringify({ gallery: [], lastUpdated: new Date().toISOString() }),
-        sha: null
-      };
-    }
-    throw error;
-  }
-}
-
-async function updateDataFile(content, sha) {
-  await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
-    owner: REPO_OWNER,
-    repo: REPO_NAME,
-    path: FILE_PATH,
-    message: 'Update gallery from website',
-    content: Buffer.from(content).toString('base64'),
-    sha: sha,
-    branch: BRANCH,
-  });
-}
+let memoryData = {
+  gallery: [],
+  lastUpdated: new Date().toISOString()
+};
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -58,10 +20,9 @@ export default async function handler(req, res) {
   // GET - return gallery data
   if (req.method === 'GET') {
     try {
-      const { content } = await getDataFile();
-      res.status(200).json(JSON.parse(content));
+      res.status(200).json(memoryData);
     } catch (error) {
-      res.status(500).json({ error: 'Failed to read data', details: error.message });
+      res.status(500).json({ error: 'Failed to read data' });
     }
     return;
   }
@@ -75,23 +36,18 @@ export default async function handler(req, res) {
         return;
       }
 
-      const { content, sha } = await getDataFile();
-      let currentData;
-      try {
-        currentData = JSON.parse(content);
-      } catch (e) {
-        currentData = { gallery: [], lastUpdated: new Date().toISOString() };
-      }
-
-      const mergedData = {
-        gallery: newData.gallery || currentData.gallery || [],
+      memoryData = {
+        gallery: newData.gallery || [],
         lastUpdated: new Date().toISOString()
       };
 
-      await updateDataFile(JSON.stringify(mergedData, null, 2), sha);
-      res.status(200).json({ success: true, data: mergedData });
+      res.status(200).json({ 
+        success: true, 
+        message: 'Data saved (in memory only)',
+        data: memoryData
+      });
     } catch (error) {
-      res.status(500).json({ error: 'Failed to update data', details: error.message });
+      res.status(500).json({ error: 'Failed to update data' });
     }
     return;
   }
