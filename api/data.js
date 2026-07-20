@@ -1,20 +1,20 @@
-// ===== api/data.js - SUPABASE STORAGE (Full Working Version) =====
+// ===== api/data.js - DEBUG VERSION (Shows all errors) =====
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase client with environment variables
+// Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 );
 
 export default async function handler(req, res) {
-  // Enable CORS for cross-origin requests
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
-  // Handle preflight OPTIONS request
+  // Handle preflight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -25,27 +25,34 @@ export default async function handler(req, res) {
   // ============================================
   if (req.method === 'GET') {
     try {
-      console.log('📤 Fetching images from Supabase...');
+      console.log('📤 GET: Fetching images from Supabase...');
+      console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ Set' : '❌ MISSING');
+      console.log('SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY ? '✅ Set' : '❌ MISSING');
       
       const { data, error } = await supabase
         .from('gallery')
         .select('url')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ GET Error:', error);
+        throw error;
+      }
 
       const images = data ? data.map(item => item.url) : [];
-      console.log(`📤 Found ${images.length} images`);
+      console.log(`✅ GET: Found ${images.length} images`);
 
       res.status(200).json({
         gallery: images,
         lastUpdated: new Date().toISOString()
       });
     } catch (error) {
-      console.error('GET Error:', error);
+      console.error('❌ GET Error:', error);
       res.status(500).json({ 
         error: 'Failed to fetch images', 
-        details: error.message 
+        details: error.message,
+        supabase_url_set: !!process.env.SUPABASE_URL,
+        supabase_key_set: !!process.env.SUPABASE_ANON_KEY
       });
     }
     return;
@@ -56,24 +63,45 @@ export default async function handler(req, res) {
   // ============================================
   if (req.method === 'POST') {
     try {
+      console.log('📥 POST: Starting upload...');
+      console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ Set' : '❌ MISSING');
+      console.log('SUPABASE_ANON_KEY:', process.env.SUPABASE_ANON_KEY ? '✅ Set' : '❌ MISSING');
+      
       const { image } = req.body;
       
       if (!image) {
+        console.log('❌ POST: No image provided');
         res.status(400).json({ error: 'No image provided' });
         return;
       }
 
-      console.log('📥 Uploading image to Supabase...');
+      console.log('📥 POST: Image received, size:', image.length);
+
+      // Check if image is valid base64
+      if (!image.startsWith('data:image/')) {
+        console.log('❌ POST: Invalid image format');
+        res.status(400).json({ error: 'Invalid image format' });
+        return;
+      }
 
       // Convert base64 to buffer
       const base64Data = image.split(',')[1];
+      if (!base64Data) {
+        console.log('❌ POST: No base64 data found');
+        res.status(400).json({ error: 'Invalid image data' });
+        return;
+      }
+
       const buffer = Buffer.from(base64Data, 'base64');
+      console.log('📥 POST: Buffer size:', buffer.length, 'bytes');
 
       // Generate unique filename
       const timestamp = Date.now();
       const randomString = Math.random().toString(36).substring(7);
       const fileName = `gallery/${timestamp}-${randomString}.png`;
       
+      console.log('📥 POST: Uploading to storage:', fileName);
+
       // Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('images')
@@ -84,14 +112,18 @@ export default async function handler(req, res) {
         });
 
       if (uploadError) {
-        console.error('Upload Error:', uploadError);
+        console.error('❌ POST Upload Error:', uploadError);
         throw new Error(`Storage upload failed: ${uploadError.message}`);
       }
+
+      console.log('✅ POST: Upload successful!');
 
       // Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('images')
         .getPublicUrl(fileName);
+
+      console.log('📥 POST: Public URL:', publicUrl);
 
       // Save URL to database
       const { error: insertError } = await supabase
@@ -102,11 +134,11 @@ export default async function handler(req, res) {
         });
 
       if (insertError) {
-        console.error('Insert Error:', insertError);
+        console.error('❌ POST Insert Error:', insertError);
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      console.log('✅ Image uploaded successfully:', publicUrl);
+      console.log('✅ POST: Database insert successful!');
 
       // Get all images to return updated list
       const { data: allImages, error: fetchError } = await supabase
@@ -114,7 +146,10 @@ export default async function handler(req, res) {
         .select('url')
         .order('created_at', { ascending: false });
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        console.error('❌ POST Fetch Error:', fetchError);
+        throw fetchError;
+      }
 
       const images = allImages ? allImages.map(item => item.url) : [];
 
@@ -124,10 +159,12 @@ export default async function handler(req, res) {
         gallery: images
       });
     } catch (error) {
-      console.error('POST Error:', error);
+      console.error('❌ POST Error:', error);
       res.status(500).json({ 
         error: 'Failed to upload image', 
-        details: error.message 
+        details: error.message,
+        supabase_url_set: !!process.env.SUPABASE_URL,
+        supabase_key_set: !!process.env.SUPABASE_ANON_KEY
       });
     }
     return;
@@ -145,7 +182,7 @@ export default async function handler(req, res) {
         return;
       }
 
-      console.log('🗑️ Deleting image:', url);
+      console.log('🗑️ DELETE: Deleting image:', url);
 
       // Extract filename from URL
       const fileName = url.split('/').pop();
@@ -161,7 +198,6 @@ export default async function handler(req, res) {
 
       if (deleteError) {
         console.error('Storage Delete Error:', deleteError);
-        // Continue even if storage delete fails - try to delete from DB
       }
 
       // Delete from database
@@ -171,11 +207,10 @@ export default async function handler(req, res) {
         .eq('url', url);
 
       if (dbError) {
-        console.error('Database Delete Error:', dbError);
         throw new Error(`Database delete failed: ${dbError.message}`);
       }
 
-      console.log('✅ Image deleted successfully');
+      console.log('✅ DELETE: Image deleted successfully');
 
       // Get all images
       const { data: allImages, error: fetchError } = await supabase
@@ -202,9 +237,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  // ============================================
-  // Method not allowed
-  // ============================================
   res.status(405).json({ 
     error: 'Method not allowed',
     allowed: ['GET', 'POST', 'DELETE', 'OPTIONS']
