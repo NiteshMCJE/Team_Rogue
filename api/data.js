@@ -1,95 +1,62 @@
-import { Octokit } from 'octokit';
+// ===== api/data.js - MEMORY STORAGE (No GitHub needed) =====
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const REPO_OWNER = process.env.REPO_OWNER;
-const REPO_NAME = process.env.REPO_NAME;
-const FILE_PATH = 'data/data.json';
-const BRANCH = 'main';
-
-const octokit = new Octokit({ auth: GITHUB_TOKEN });
-
-async function getDataFile() {
-  try {
-    const response = await octokit.request('GET /repos/{owner}/{repo}/contents/{path}', {
-      owner: REPO_OWNER,
-      repo: REPO_NAME,
-      path: FILE_PATH,
-      ref: BRANCH,
-    });
-    return {
-      content: Buffer.from(response.data.content, 'base64').toString('utf8'),
-      sha: response.data.sha
-    };
-  } catch (error) {
-    if (error.status === 404) {
-      return {
-        content: JSON.stringify({ gallery: [], lastUpdated: new Date().toISOString() }),
-        sha: null
-      };
-    }
-    throw error;
-  }
-}
-
-async function updateDataFile(content, sha) {
-  await octokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
-    owner: REPO_OWNER,
-    repo: REPO_NAME,
-    path: FILE_PATH,
-    message: 'Update gallery from website',
-    content: Buffer.from(content).toString('base64'),
-    sha: sha,
-    branch: BRANCH,
-  });
-}
+// Simple in-memory storage (resets on Vercel restart)
+let memoryData = {
+  gallery: [],
+  lastUpdated: new Date().toISOString()
+};
 
 export default async function handler(req, res) {
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
+  // Handle preflight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
+  // GET - Return gallery data
   if (req.method === 'GET') {
     try {
-      const { content } = await getDataFile();
-      res.status(200).json(JSON.parse(content));
+      console.log('📤 Sending data:', memoryData.gallery.length, 'images');
+      res.status(200).json(memoryData);
     } catch (error) {
-      console.error('Error reading data:', error);
-      res.status(500).json({ error: 'Failed to read data', details: error.message });
+      console.error('GET Error:', error);
+      res.status(500).json({ error: 'Failed to read data' });
     }
     return;
   }
 
+  // POST - Update gallery
   if (req.method === 'POST') {
     try {
       const newData = req.body;
-      if (!newData) {
+      console.log('📥 Received upload:', newData.gallery ? newData.gallery.length : 0, 'images');
+      
+      if (!newData || !newData.gallery) {
         res.status(400).json({ error: 'No data provided' });
         return;
       }
 
-      const { content, sha } = await getDataFile();
-      let currentData;
-      try {
-        currentData = JSON.parse(content);
-      } catch (e) {
-        currentData = { gallery: [], lastUpdated: new Date().toISOString() };
-      }
-
-      const mergedData = {
-        gallery: newData.gallery || currentData.gallery || [],
+      // Update memory
+      memoryData = {
+        gallery: newData.gallery || [],
         lastUpdated: new Date().toISOString()
       };
 
-      await updateDataFile(JSON.stringify(mergedData, null, 2), sha);
-      res.status(200).json({ success: true, data: mergedData });
+      console.log('💾 Saved:', memoryData.gallery.length, 'images');
+
+      res.status(200).json({
+        success: true,
+        message: 'Data saved successfully!',
+        data: memoryData
+      });
     } catch (error) {
-      console.error('Error updating data:', error);
+      console.error('POST Error:', error);
       res.status(500).json({ error: 'Failed to update data', details: error.message });
     }
     return;
